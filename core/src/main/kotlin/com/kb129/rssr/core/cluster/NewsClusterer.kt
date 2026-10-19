@@ -41,8 +41,13 @@ class NewsClusterer(
         val maxPostingSize: Int = 200,
     )
 
-    fun cluster(input: List<Article>): List<NewsCluster> {
-        val articles = deduplicate(input)
+    /**
+     * @param preferredFeeds 優先ソースのフィード URL。同じ話題に優先ソースの記事があれば、それを代表記事にする。
+     *   同じ記事が複数フィードにある場合も優先ソース側を残す。
+     */
+    fun cluster(input: List<Article>, preferredFeeds: Set<String> = emptySet()): List<NewsCluster> {
+        // 安定ソートで優先ソースの記事を前に出してから重複排除する (先に出た方が残る)
+        val articles = deduplicate(input.sortedByDescending { it.feedUrl in preferredFeeds })
         if (articles.isEmpty()) return emptyList()
         val n = articles.size
         val tfidf = TfIdfVectorizer(tokenizer).fit(articles)
@@ -80,7 +85,7 @@ class NewsClusterer(
         }
 
         return members.values
-            .map { buildCluster(it, articles, tfidf, ::sim) }
+            .map { buildCluster(it, articles, tfidf, preferredFeeds, ::sim) }
             .sortedWith(
                 compareByDescending<NewsCluster> { it.sources.size }
                     .thenByDescending { it.size }
@@ -140,11 +145,14 @@ class NewsClusterer(
         memberIdx: List<Int>,
         articles: List<Article>,
         tfidf: TfIdfVectorizer.Result,
+        preferredFeeds: Set<String>,
         sim: (Int, Int) -> Double,
     ): NewsCluster {
         // メドイド: 他メンバーとの類似度の合計が最大の記事
         val scores = memberIdx.associateWith { i -> memberIdx.sumOf { j -> if (i == j) 0.0 else sim(i, j) } }
-        val repIdx = memberIdx.maxWith(
+        // 優先ソースの記事があればその中から選ぶ
+        val candidates = memberIdx.filter { articles[it].feedUrl in preferredFeeds }.ifEmpty { memberIdx }
+        val repIdx = candidates.maxWith(
             compareBy<Int> { scores.getValue(it) }.thenBy { -(articles[it].publishedAt ?: Long.MAX_VALUE) },
         )
         val pairCount = memberIdx.size * (memberIdx.size - 1) / 2

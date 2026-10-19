@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +66,7 @@ fun ClusterListScreen(
     onRefresh: () -> Unit,
     onThresholdChange: (Float) -> Unit,
     onShowSinglesChange: (Boolean) -> Unit,
+    onOneArticlePerTopicChange: (Boolean) -> Unit,
     onOpenFeeds: () -> Unit,
 ) {
     Scaffold(
@@ -91,7 +93,7 @@ fun ClusterListScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 item(key = "controls") {
-                    ClusterControls(state, onThresholdChange, onShowSinglesChange)
+                    ClusterControls(state, onThresholdChange, onShowSinglesChange, onOneArticlePerTopicChange)
                 }
                 val errors = state.feedStatus.filterValues { it is FeedStatus.Error }
                 if (errors.isNotEmpty()) {
@@ -115,7 +117,11 @@ fun ClusterListScreen(
                     }
                 }
                 items(state.visibleClusters, key = { it.id }) { cluster ->
-                    ClusterCard(cluster)
+                    ClusterCard(
+                        cluster = cluster,
+                        oneArticlePerTopic = state.oneArticlePerTopic,
+                        isPreferred = cluster.representative.feedUrl in state.preferredFeeds,
+                    )
                 }
             }
         }
@@ -127,6 +133,7 @@ private fun ClusterControls(
     state: NewsUiState,
     onThresholdChange: (Float) -> Unit,
     onShowSinglesChange: (Boolean) -> Unit,
+    onOneArticlePerTopicChange: (Boolean) -> Unit,
 ) {
     Column {
         val topics = state.clusters.count { it.size > 1 }
@@ -150,12 +157,17 @@ private fun ClusterControls(
                 modifier = Modifier.width(36.dp),
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "← ゆるく  /  厳しく →",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
+        Text(
+            "← ゆるく  /  厳しく →",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = state.oneArticlePerTopic,
+                onClick = { onOneArticlePerTopicChange(!state.oneArticlePerTopic) },
+                label = { Text("同じ話題は1件だけ") },
             )
             FilterChip(
                 selected = state.showSingles,
@@ -169,7 +181,7 @@ private fun ClusterControls(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ClusterCard(cluster: NewsCluster) {
+private fun ClusterCard(cluster: NewsCluster, oneArticlePerTopic: Boolean, isPreferred: Boolean) {
     val context = LocalContext.current
     val toolbarColor = MaterialTheme.colorScheme.surface.toArgb()
     val open = { url: String -> openInAppBrowser(context, url, toolbarColor) }
@@ -217,7 +229,7 @@ private fun ClusterCard(cluster: NewsCluster) {
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.size(4.dp))
-                    SourceLine(rep)
+                    SourceLine(rep, isPreferred = isPreferred)
                     if (rep.summary.isNotBlank()) {
                         Spacer(Modifier.size(4.dp))
                         Text(
@@ -238,8 +250,20 @@ private fun ClusterCard(cluster: NewsCluster) {
                 )
             }
 
-            // 同じ話題の他の記事
-            if (others.isNotEmpty()) {
+            // 同じ話題の他の記事。「同じ話題は1件だけ」がオンなら媒体名だけ添えてリンクは出さない
+            if (others.isNotEmpty() && oneArticlePerTopic) {
+                val otherSources = others.map { it.source }.distinct().filter { it != rep.source }
+                if (otherSources.isNotEmpty()) {
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "ほかに ${otherSources.joinToString("、")} も報道",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else if (others.isNotEmpty()) {
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
                 val shown = if (expanded) others else others.take(collapsedCount)
                 shown.forEach { article ->
@@ -275,10 +299,19 @@ private fun KeywordChip(word: String) {
 }
 
 @Composable
-private fun SourceLine(article: Article) {
+private fun SourceLine(article: Article, isPreferred: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).background(sourceColor(article.source), CircleShape))
         Spacer(Modifier.width(6.dp))
+        if (isPreferred) {
+            Icon(
+                Icons.Filled.Star,
+                contentDescription = "優先ソース",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(12.dp),
+            )
+            Spacer(Modifier.width(2.dp))
+        }
         Text(
             article.source + (article.publishedAt?.let { " · ${relativeTime(it)}" } ?: ""),
             style = MaterialTheme.typography.labelSmall,

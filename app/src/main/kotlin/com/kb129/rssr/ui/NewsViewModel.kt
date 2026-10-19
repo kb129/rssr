@@ -26,6 +26,10 @@ sealed interface FeedStatus {
 
 data class NewsUiState(
     val feeds: List<String>,
+    /** 優先ソースのフィード URL。同じ話題ではこのフィードの記事を代表にする。 */
+    val preferredFeeds: Set<String> = emptySet(),
+    /** 同じ話題は代表記事 1 件だけ表示し、他媒体の記事は出さない。 */
+    val oneArticlePerTopic: Boolean = true,
     val feedStatus: Map<String, FeedStatus> = emptyMap(),
     val clusters: List<NewsCluster> = emptyList(),
     val articleCount: Int = 0,
@@ -43,7 +47,13 @@ class NewsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = FeedStore(app)
     private val fetcher = FeedFetcher()
 
-    private val _state = MutableStateFlow(NewsUiState(feeds = store.load()))
+    private val _state = MutableStateFlow(
+        NewsUiState(
+            feeds = store.load(),
+            preferredFeeds = store.loadPreferred(),
+            oneArticlePerTopic = store.oneArticlePerTopic,
+        ),
+    )
     val state: StateFlow<NewsUiState> = _state.asStateFlow()
 
     /** フィード URL → 最後に取得した記事。しきい値の変更時は再取得せずこれを再クラスタリングする。 */
@@ -64,7 +74,7 @@ class NewsViewModel(app: Application) : AndroidViewModel(app) {
             val results = fetcher.fetchAll(_state.value.feeds)
             // 失敗したフィードは前回取得分を残す
             articlesByFeed = results.mapValues { (url, r) ->
-                r.getOrNull()?.articles ?: articlesByFeed[url].orEmpty()
+                r.getOrNull()?.articles?.map { it.copy(feedUrl = url) } ?: articlesByFeed[url].orEmpty()
             }
             val status = results.mapValues { (_, r) ->
                 r.fold(
@@ -87,6 +97,19 @@ class NewsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setShowSingles(show: Boolean) = _state.update { it.copy(showSingles = show) }
 
+    fun setOneArticlePerTopic(enabled: Boolean) {
+        store.oneArticlePerTopic = enabled
+        _state.update { it.copy(oneArticlePerTopic = enabled) }
+    }
+
+    fun togglePreferred(url: String) {
+        val current = _state.value.preferredFeeds
+        val next = if (url in current) current - url else current + url
+        store.savePreferred(next)
+        _state.update { it.copy(preferredFeeds = next) }
+        recluster(debounce = false) // 代表記事が変わる
+    }
+
     /** @return 追加できたら null、できなければ理由。 */
     fun addFeed(raw: String): String? {
         val url = raw.trim()
@@ -100,6 +123,11 @@ class NewsViewModel(app: Application) : AndroidViewModel(app) {
     fun removeFeed(url: String) {
         updateFeeds(_state.value.feeds - url)
         articlesByFeed = articlesByFeed - url
+        if (url in _state.value.preferredFeeds) {
+            val next = _state.value.preferredFeeds - url
+            store.savePreferred(next)
+            _state.update { it.copy(preferredFeeds = next) }
+        }
         _state.update { it.copy(feedStatus = it.feedStatus - url, articleCount = articles.size) }
         recluster(debounce = false)
     }
@@ -116,8 +144,11 @@ class NewsViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(isClustering = true) }
             val config = NewsClusterer.Config(threshold = _state.value.threshold.toDouble())
             val snapshot = articles
+            val preferred = _state.value.preferredFeeds
             // 数百〜千件程度なら数十 ms〜。UI スレッドを塞がないよう Default で計算する
-            val clusters = withContext(Dispatchers.Default) { NewsClusterer(config = config).cluster(snapshot) }
+            val clusters = withContext(Dispatchers.Default) {
+                NewsClusterer(config = config).cluster(snapshot, preferredFeeds = preferred)
+            }
             _state.update { it.copy(clusters = clusters, isClustering = false) }
         }
     }

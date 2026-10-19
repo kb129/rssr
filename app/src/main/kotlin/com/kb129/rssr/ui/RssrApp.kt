@@ -22,6 +22,7 @@ fun RssrApp(viewModel: NewsViewModel = viewModel()) {
             onRefresh = viewModel::refresh,
             onThresholdChange = viewModel::setThreshold,
             onShowSinglesChange = viewModel::setShowSingles,
+            onOneArticlePerTopicChange = viewModel::setOneArticlePerTopic,
             onOpenFeeds = { screen = Screen.Feeds },
         )
         Screen.Feeds -> {
@@ -30,6 +31,7 @@ fun RssrApp(viewModel: NewsViewModel = viewModel()) {
                 state = state,
                 onAdd = viewModel::addFeed,
                 onRemove = viewModel::removeFeed,
+                onTogglePreferred = viewModel::togglePreferred,
                 onBack = { screen = Screen.News },
             )
         }

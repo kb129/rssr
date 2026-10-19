@@ -14,6 +14,8 @@ data class Article(
     val publishedAt: Long?,
     /** フィード内で見つかったサムネイル画像の URL (media:thumbnail / enclosure / 本文の <img>)。 */
     val imageUrl: String? = null,
+    /** 取得元フィードの URL。優先ソースの判定に使う (パーサーは設定せず、取得側で埋める)。 */
+    val feedUrl: String = "",
 )
 
 data class Feed(

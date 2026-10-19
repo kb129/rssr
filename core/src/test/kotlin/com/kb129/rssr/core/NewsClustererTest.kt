@@ -11,7 +11,10 @@ class NewsClustererTest {
     private val base = 1_792_368_000_000L // 2026-10-18 頃
 
     private fun article(id: String, source: String, title: String, summary: String = "", hoursAgo: Int = 0) =
-        Article(id, title, summary, "https://$source.example/$id", source, base - hoursAgo * 3_600_000L)
+        Article(
+            id, title, summary, "https://$source.example/$id", source, base - hoursAgo * 3_600_000L,
+            feedUrl = "https://$source.example/rss",
+        )
 
     private val corpus = listOf(
         // 話題 A: 日銀の金利据え置き
@@ -77,5 +80,22 @@ class NewsClustererTest {
         val t = CharTypeTokenizer()
         assertEquals(listOf("日本", "本銀", "銀行", "総裁", "iphone", "18", "アップル"), t.tokenize("日本銀行の総裁がｉＰｈｏｎｅ１８とアップルを"))
         assertEquals(listOf("日本銀行", "総裁", "iphone", "アップル"), t.surfaceWords("日本銀行の総裁がｉＰｈｏｎｅ１８とアップルを"))
+    }
+
+    @Test
+    fun preferredSourceBecomesRepresentative() {
+        fun bank(clusters: List<com.kb129.rssr.core.model.NewsCluster>) = clusters.first { c -> c.articles.any { it.id == "a1" } }
+        assertTrue(bank(NewsClusterer().cluster(corpus)).representative.id != "a2")
+        val preferred = NewsClusterer().cluster(corpus, preferredFeeds = setOf("https://yahoo.example/rss"))
+        assertEquals("a2", bank(preferred).representative.id)
+        assertEquals(3, bank(preferred).size)
+    }
+
+    @Test
+    fun duplicateKeepsPreferredSource() {
+        val dup = corpus[0].copy(id = "dup", source = "other", feedUrl = "https://other.example/rss")
+        val clusters = NewsClusterer().cluster(corpus + dup, preferredFeeds = setOf("https://other.example/rss"))
+        val ids = clusters.flatMap { c -> c.articles.map { it.id } }
+        assertTrue(ids.toString(), "dup" in ids && "a1" !in ids)
     }
 }

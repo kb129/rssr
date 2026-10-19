@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -45,6 +46,7 @@ fun FeedManageScreen(
     state: NewsUiState,
     onAdd: (String) -> String?,
     onRemove: (String) -> Unit,
+    onTogglePreferred: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     var input by rememberSaveable { mutableStateOf("") }
@@ -93,13 +95,30 @@ fun FeedManageScreen(
                     Icon(Icons.Filled.Add, contentDescription = "追加")
                 }
             }
+            Text(
+                "★ を付けたフィードは優先ソースになり、同じ話題ではその記事が代表として表示されます。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(state.feeds, key = { it }) { url ->
                     val status = state.feedStatus[url]
+                    val preferred = url in state.preferredFeeds
                     ListItem(
+                        leadingContent = {
+                            IconButton(onClick = { onTogglePreferred(url) }) {
+                                Icon(
+                                    Icons.Filled.Star,
+                                    contentDescription = if (preferred) "優先を解除" else "優先ソースにする",
+                                    tint = if (preferred) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                )
+                            }
+                        },
                         headlineContent = {
                             Text(
                                 (status as? FeedStatus.Ok)?.title ?: url,

@@ -14,13 +14,29 @@ android {
         applicationId = "com.kb129.rssr"
         minSdk = 26 // java.time を使うため
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // リリース CI から -PversionCode / -PversionName で上書きする
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("versionName").orNull ?: "1.0"
+    }
+
+    // 環境変数 RSSR_KEYSTORE_PATH などが与えられたらその鍵で署名する。
+    // 無ければデバッグ鍵で署名する (インストールはできるが、ビルド環境が変わると上書き更新できない)。
+    val releaseKeystore = System.getenv("RSSR_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("RSSR_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RSSR_KEY_ALIAS")
+                keyPassword = System.getenv("RSSR_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
     compileOptions {

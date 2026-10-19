@@ -50,7 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -170,7 +171,9 @@ private fun ClusterControls(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClusterCard(cluster: NewsCluster) {
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val toolbarColor = MaterialTheme.colorScheme.surface.toArgb()
+    val open = { url: String -> openInAppBrowser(context, url, toolbarColor) }
     var expanded by rememberSaveable(cluster.id) { mutableStateOf(false) }
     val rep = cluster.representative
     val others = cluster.articles.drop(1)
@@ -207,7 +210,7 @@ private fun ClusterCard(cluster: NewsCluster) {
             Spacer(Modifier.size(8.dp))
 
             // 代表記事
-            Column(Modifier.clickable { uriHandler.openUri(rep.link) }) {
+            Column(Modifier.clickable { open(rep.link) }) {
                 Text(
                     rep.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -232,7 +235,7 @@ private fun ClusterCard(cluster: NewsCluster) {
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
                 val shown = if (expanded) others else others.take(collapsedCount)
                 shown.forEach { article ->
-                    RelatedArticleRow(article, onClick = { uriHandler.openUri(article.link) })
+                    RelatedArticleRow(article, onClick = { open(article.link) })
                 }
                 if (others.size > collapsedCount) {
                     TextButton(onClick = { expanded = !expanded }) {

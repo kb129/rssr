@@ -49,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -209,25 +208,34 @@ private fun ClusterCard(cluster: NewsCluster) {
             }
             Spacer(Modifier.size(8.dp))
 
-            // 代表記事
-            Column(Modifier.clickable { open(rep.link) }) {
-                Text(
-                    rep.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.size(4.dp))
-                SourceLine(rep)
-                if (rep.summary.isNotBlank()) {
-                    Spacer(Modifier.size(4.dp))
+            // 代表記事 (右にサムネイル。代表記事に画像が無ければ同じ話題の他記事の画像を使う)
+            Row(Modifier.fillMaxWidth().clickable { open(rep.link) }) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        rep.summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        rep.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                     )
+                    Spacer(Modifier.size(4.dp))
+                    SourceLine(rep)
+                    if (rep.summary.isNotBlank()) {
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            rep.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                Spacer(Modifier.width(12.dp))
+                Thumbnail(
+                    feedImage = rep.imageUrl ?: cluster.articles.firstNotNullOfOrNull { it.imageUrl },
+                    pageUrl = rep.link,
+                    source = rep.source,
+                    size = 88.dp,
+                )
             }
 
             // 同じ話題の他の記事
@@ -283,30 +291,27 @@ private fun SourceLine(article: Article) {
 
 @Composable
 private fun RelatedArticleRow(article: Article, onClick: () -> Unit) {
-    Column(
-        Modifier
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(vertical = 6.dp),
     ) {
-        Text(
-            article.title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.size(2.dp))
-        SourceLine(article)
+        Thumbnail(feedImage = article.imageUrl, pageUrl = article.link, source = article.source, size = 52.dp)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                article.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.size(2.dp))
+            SourceLine(article)
+        }
     }
 }
-
-/** 媒体ごとに安定した色を割り当てる (どの媒体が報じているか一目で分かるように)。 */
-private val sourcePalette = listOf(
-    Color(0xFF1E88E5), Color(0xFFE53935), Color(0xFF43A047), Color(0xFFFB8C00),
-    Color(0xFF8E24AA), Color(0xFF00897B), Color(0xFF6D4C41), Color(0xFF3949AB),
-)
-
-private fun sourceColor(source: String): Color = sourcePalette[Math.floorMod(source.hashCode(), sourcePalette.size)]
 
 private fun relativeTime(epochMillis: Long): String =
     DateUtils.getRelativeTimeSpanString(

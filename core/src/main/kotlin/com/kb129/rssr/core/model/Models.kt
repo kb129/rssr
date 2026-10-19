@@ -12,6 +12,8 @@ data class Article(
     val source: String,
     /** エポックミリ秒。日付が無い/読めないフィードでは null。 */
     val publishedAt: Long?,
+    /** フィード内で見つかったサムネイル画像の URL (media:thumbnail / enclosure / 本文の <img>)。 */
+    val imageUrl: String? = null,
 )
 
 data class Feed(

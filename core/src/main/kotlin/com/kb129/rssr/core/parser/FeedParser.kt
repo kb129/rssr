@@ -5,6 +5,7 @@ import com.kb129.rssr.core.model.Feed
 import com.kb129.rssr.core.text.TextNormalizer
 import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
+import java.net.URI
 
 /**
  * RSS 2.0 / RSS 1.0 (RDF) / Atom を 1 つのループで読むパーサー。
@@ -16,6 +17,11 @@ import java.io.InputStream
  *   JVM のテストでは `{ KXmlParser() }` を渡す。
  */
 class FeedParser(private val newParser: () -> XmlPullParser) {
+
+    private val imgTag = Regex("""<img\b[^>]*>""", RegexOption.IGNORE_CASE)
+    private val imgSrc = Regex("""\b(?:data-src|src)\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    private val onePixel = Regex("""\b(?:width|height)\s*=\s*["']?1["'\s/>]""", RegexOption.IGNORE_CASE)
+    private val imageExtension = Regex("""\.(?:jpe?g|png|webp|gif|avif)(?:\?|$)""", RegexOption.IGNORE_CASE)
 
     /** @param encoding null なら XML 宣言 (<?xml encoding="Shift_JIS"?> など) に従う。 */
     fun parse(input: InputStream, fallbackSource: String, encoding: String? = null): Feed {
@@ -31,6 +37,10 @@ class FeedParser(private val newParser: () -> XmlPullParser) {
         var summary = ""
         var content = ""
         var date: String? = null
+        /** media:thumbnail などで明示された画像。 */
+        var image: String? = null
+        /** 本文 HTML 中の最初の <img>。明示的な画像が無いときに使う。 */
+        var htmlImage: String? = null
     }
 
     private fun read(p: XmlPullParser, fallbackSource: String): Feed {
@@ -64,16 +74,48 @@ class FeedParser(private val newParser: () -> XmlPullParser) {
                             val href = p.getAttributeValue(null, "href")
                             val rel = p.getAttributeValue(null, "rel")
                             if (href != null) {
-                                if (rel == null || rel == "alternate" || item.link.isEmpty()) item.link = href.trim()
+                                if (rel == "enclosure") {
+                                    if (isImage(p.getAttributeValue(null, "type"), null, href)) item.image = item.image ?: href.trim()
+                                } else if (rel == null || rel == "alternate" || item.link.isEmpty()) {
+                                    item.link = href.trim()
+                                }
                                 skip(p)
                             } else {
                                 item.link = readText(p).trim()
                             }
                         }
                         "guid", "id" -> item.id = readText(p).trim()
-                        "description", "summary" ->
-                            readText(p).let { if (item.summary.isEmpty()) item.summary = TextNormalizer.stripHtml(it) }
-                        "encoded", "content" -> item.content = TextNormalizer.stripHtml(readText(p))
+                        "description", "summary" -> readText(p).let {
+                            item.htmlImage = item.htmlImage ?: firstImage(it)
+                            if (item.summary.isEmpty()) item.summary = TextNormalizer.stripHtml(it)
+                        }
+                        "content" -> {
+                            val url = p.getAttributeValue(null, "url")
+                            if (url != null) {
+                                // media:content。子要素 (media:title など) はメインループに任せる
+                                val type = p.getAttributeValue(null, "type")
+                                val medium = p.getAttributeValue(null, "medium")
+                                if (isImage(type, medium, url)) item.image = item.image ?: url.trim()
+                            } else {
+                                // Atom の content
+                                val raw = readText(p)
+                                item.htmlImage = item.htmlImage ?: firstImage(raw)
+                                item.content = TextNormalizer.stripHtml(raw)
+                            }
+                        }
+                        "encoded" -> readText(p).let {
+                            item.htmlImage = item.htmlImage ?: firstImage(it)
+                            item.content = TextNormalizer.stripHtml(it)
+                        }
+                        "thumbnail" -> p.getAttributeValue(null, "url")?.let { item.image = item.image ?: it.trim() }
+                        "enclosure" -> {
+                            val url = p.getAttributeValue(null, "url")
+                            if (url != null && isImage(p.getAttributeValue(null, "type"), null, url)) {
+                                item.image = item.image ?: url.trim()
+                            }
+                        }
+                        // はてなブックマーク等の <hatena:imageurl>
+                        "imageurl" -> readText(p).trim().takeIf { it.isNotEmpty() }?.let { item.image = item.image ?: it }
                         "pubdate", "pubDate", "date", "published", "updated", "issued", "modified" -> {
                             val text = readText(p).trim()
                             // published を updated より優先
@@ -101,12 +143,38 @@ class FeedParser(private val newParser: () -> XmlPullParser) {
                 link = b.link,
                 source = source,
                 publishedAt = b.date?.let(DateParser::parse),
+                imageUrl = (b.image ?: b.htmlImage)?.let { resolveUrl(b.link, it) },
             )
         }
         return Feed(source, articles)
     }
 
     private fun localName(name: String): String = name.substringAfter(':')
+
+    private fun isImage(type: String?, medium: String?, url: String): Boolean = when {
+        medium != null -> medium == "image"
+        type != null -> type.startsWith("image/")
+        else -> imageExtension.containsMatchIn(url)
+    }
+
+    /** 本文 HTML 中の最初の <img> の src。1px のトラッキング画像は除く。 */
+    private fun firstImage(html: String): String? {
+        for (tag in imgTag.findAll(html)) {
+            val t = tag.value
+            if (onePixel.containsMatchIn(t)) continue
+            val src = imgSrc.find(t)?.groupValues?.get(1)?.trim() ?: continue
+            if (src.isNotEmpty() && !src.startsWith("data:")) return TextNormalizer.stripHtml(src)
+        }
+        return null
+    }
+
+    /** 相対 URL / プロトコル相対 URL を記事 URL 基準で絶対 URL にする。 */
+    private fun resolveUrl(base: String, url: String): String? = try {
+        val resolved = if (base.isNotBlank()) URI(base).resolve(url.replace(" ", "%20")) else URI(url)
+        resolved.toString().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    } catch (_: Exception) {
+        url.takeIf { it.startsWith("http") }
+    }
 
     /**
      * 現在の START_TAG の中身を文字列として読み、対応する END_TAG で止まる。

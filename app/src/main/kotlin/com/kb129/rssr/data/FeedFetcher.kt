@@ -14,14 +14,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
-class FeedFetcher(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build(),
-) {
+class FeedFetcher(private val client: OkHttpClient = Http.client) {
     // :core のパーサーは名前空間処理 OFF 前提 (JVM テストの KXmlParser と同じ挙動に揃える)
     private val parser = FeedParser {
         Xml.newPullParser().apply { setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false) }
@@ -30,7 +24,7 @@ class FeedFetcher(
     suspend fun fetch(url: String): Feed = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "rssr/1.0 (Android; +https://github.com/kb129/rssr)")
+            .header("User-Agent", Http.USER_AGENT)
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")

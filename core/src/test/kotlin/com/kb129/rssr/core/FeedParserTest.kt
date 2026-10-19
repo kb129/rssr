@@ -96,4 +96,73 @@ class FeedParserTest {
         assertEquals("https://example.jp/1", a.link)
         assertNotNull(a.publishedAt)
     }
+
+    @Test
+    fun thumbnails() {
+        val feed = parse(
+            """
+            <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"
+                 xmlns:content="http://purl.org/rss/1.0/modules/content/">
+              <channel>
+                <title>画像テスト</title>
+                <item>
+                  <title>media:thumbnail</title>
+                  <link>https://example.com/news/1</link>
+                  <media:thumbnail url="https://cdn.example.com/1.jpg" width="120"/>
+                  <description><![CDATA[<img src="https://cdn.example.com/other.jpg">]]></description>
+                </item>
+                <item>
+                  <title>enclosure</title>
+                  <link>https://example.com/news/2</link>
+                  <enclosure url="https://cdn.example.com/2.png" type="image/png" length="0"/>
+                </item>
+                <item>
+                  <title>media:content</title>
+                  <link>https://example.com/news/3</link>
+                  <media:content url="https://cdn.example.com/3.webp" medium="image"><media:title>キャプション</media:title></media:content>
+                </item>
+                <item>
+                  <title>本文の img (相対 URL・トラッキング画像を除外)</title>
+                  <link>https://example.com/news/4</link>
+                  <content:encoded><![CDATA[<img src="https://t.example.com/p.gif" width="1" height="1"><p><img class="x" src="/img/4.jpg" alt=""></p>]]></content:encoded>
+                </item>
+                <item>
+                  <title>画像なし</title>
+                  <link>https://example.com/news/5</link>
+                  <enclosure url="https://cdn.example.com/a.mp3" type="audio/mpeg" length="0"/>
+                </item>
+              </channel>
+            </rss>
+            """.trimIndent(),
+        )
+        assertEquals(
+            listOf(
+                "https://cdn.example.com/1.jpg",
+                "https://cdn.example.com/2.png",
+                "https://cdn.example.com/3.webp",
+                "https://example.com/img/4.jpg",
+                null,
+            ),
+            feed.articles.map { it.imageUrl },
+        )
+        assertEquals("media:content", feed.articles[2].title)
+    }
+
+    @Test
+    fun atomEnclosureImage() {
+        val feed = parse(
+            """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Atom</title>
+              <entry>
+                <title>t</title>
+                <link rel="alternate" href="https://example.com/a"/>
+                <link rel="enclosure" type="image/jpeg" href="https://example.com/a.jpg"/>
+                <content type="html">&lt;img src="//cdn.example.com/b.jpg"&gt;</content>
+              </entry>
+            </feed>
+            """.trimIndent(),
+        )
+        assertEquals("https://example.com/a.jpg", feed.articles.single().imageUrl)
+    }
 }

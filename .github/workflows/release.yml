@@ -1,10 +1,16 @@
 name: Release
 
-# v1.2.3 形式のタグをプッシュすると、署名済み APK を添付した GitHub Release を作る
+# v1.2.3 形式のタグをプッシュするか、Actions 画面から手動実行 (バージョンを入力) すると、
+# 署名済み APK を添付した GitHub Release を作る。手動実行時はタグも自動で作られる。
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースするバージョン (例: v1.0.0)"
+        required: true
 
 permissions:
   contents: write
@@ -13,6 +19,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
 
@@ -45,11 +53,14 @@ jobs:
           RSSR_KEY_PASSWORD: ${{ secrets.RSSR_KEY_PASSWORD }}
         run: |
           ./gradlew :app:assembleRelease --console=plain \
-            -PversionName="${GITHUB_REF_NAME#v}" \
+            -PversionName="${TAG#v}" \
             -PversionCode="${GITHUB_RUN_NUMBER}"
-          cp app/build/outputs/apk/release/app-release.apk "rssr-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "rssr-${TAG}.apk"
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: rssr-${{ github.ref_name }}.apk
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          files: rssr-${{ env.TAG }}.apk
           generate_release_notes: true
